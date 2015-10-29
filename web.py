@@ -22,6 +22,8 @@ class Debug:
 
 
 
+
+
 class Poller:
     """ Polling server """
     def __init__(self,port):
@@ -32,6 +34,7 @@ class Poller:
         self.size = 1024
 
     def open_socket(self):
+        Debug.dprint("POLLER::open_socket")
         """ Setup the socket for incoming clients """
         try:
             self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -46,7 +49,7 @@ class Poller:
             sys.exit(1)
 
     def run(self):
-        Debug.dprint("this is a test")
+        Debug.dprint("POLLER::run")
         """ Use poll() to handle each incoming client."""
         self.poller = select.epoll()
         self.pollmask = select.EPOLLIN | select.EPOLLHUP | select.EPOLLERR
@@ -70,6 +73,7 @@ class Poller:
                 result = self.handleClient(fd)
 
     def handleError(self,fd):
+        Debug.dprint("POLLER::handleError")
         self.poller.unregister(fd)
         if fd == self.server.fileno():
             # recreate server socket
@@ -83,6 +87,7 @@ class Poller:
 
     def handleServer(self):
         # accept as many clients as possible
+        Debug.dprint("POLLER::handleServer")
         while True:
             try:
                 (client,address) = self.server.accept()
@@ -99,8 +104,31 @@ class Poller:
             self.poller.register(client.fileno(),self.pollmask)
 
     def handleClient(self,fd):
+        Debug.dprint("POLLER::handleClient:fd->" + str(fd))
         try:
             data = self.clients[fd].recv(self.size)
+            Debug.dprint("POLLER::handleClient:data->\n" + str(data))
+
+            #parse the data (GET header)
+            try:
+                from http_parser.parser import HttpParser
+            except ImportError:
+                from http_parser.pyparser import HttpParser
+
+            p = HttpParser()
+            nparsed = p.execute(data,len(data))
+
+            Debug.dprint("POLLER::handleClient:HttpParser:get_method()\n" + p.get_method())
+            Debug.dprint("POLLER::handleClient:HttpParser:get_path()\n" + p.get_path())
+            Debug.dprint("POLLER::handleClient:HttpParser:get_headers()\n")
+            headers = p.get_headers()
+            for i in headers:
+                Debug.dprint(i + ":" + headers[i])
+
+            
+            #handle the request
+            #construct the response
+
         except socket.error, (value,message):
             # if no data is available, move on to another client
             if value == errno.EAGAIN or errno.EWOULDBLOCK:
@@ -110,6 +138,7 @@ class Poller:
 
         if data:
             self.clients[fd].send(data)
+            self.clients[fd].close()
         else:
             self.poller.unregister(fd)
             self.clients[fd].close()
