@@ -85,7 +85,20 @@ class Poller:
         while True:
             # poll sockets
             try:
+                for key in self.clients:
+                    lastEvent = self.mark[key]
+                    if lastEvent != 0:
+                        current = datetime.now()
+                        totalTime = current - lastEvent
+                        if (totalTime.seconds >= configParameter['timeout']):
+                            Debug.dprint("POLLER::timeout has occured")
+                            self.poller.unregister(key)
+                            self.clients[key].close()
+                            del self.clients[key]
+                            del self.mark[key]
+
                 fds = self.poller.poll(timeout=1)
+
             except:
                 return
             for (fd,event) in fds:
