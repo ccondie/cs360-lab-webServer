@@ -55,6 +55,7 @@ class Poller:
         self.port = port
         self.open_socket()
         self.clients = {}
+        self.timestamps = {}
         self.size = 1024
 
     def open_socket(self):
@@ -86,18 +87,18 @@ class Poller:
             # poll sockets
             try:
                 for key in self.clients:
-                    lastEvent = self.mark[key]
+                    lastEvent = self.timestamps[key]
                     if lastEvent != 0:
                         current = datetime.now()
                         totalTime = current - lastEvent
                         if (totalTime.seconds >= configParameter['timeout']):
-                            Debug.dprint("POLLER::timeout has occured")
+                            Debug.dprint("POLLER::run:mark&sweep:timout_occured")
                             self.poller.unregister(key)
                             self.clients[key].close()
                             del self.clients[key]
-                            del self.mark[key]
+                            del self.timestamps[key]
 
-                fds = self.poller.poll(timeout=1)
+                fds = self.poller.poll(timeout=0.5)
 
             except:
                 return
@@ -146,6 +147,7 @@ class Poller:
             except socket.error, (value,message):
                 # if socket blocks because no clients are available,
                 # then return
+                Debug.dprint("POLLER::handleServer:socket_exception")
                 if value == errno.EAGAIN or errno.EWOULDBLOCK:
                     return
                 print traceback.format_exc()
@@ -153,6 +155,7 @@ class Poller:
             # set client socket to be non blocking
             client.setblocking(0)
             self.clients[client.fileno()] = client
+            self.timestamps[client.fileno()] = 0
             self.poller.register(client.fileno(),self.pollmask)
 
 
@@ -168,10 +171,8 @@ class Poller:
         Debug.dprint("POLLER::handleClient:fd->" + str(fd))
         try:
             data = self.clients[fd].recv(self.size)
+            self.timestamps[fd] = datetime.now()
             Debug.dprint("POLLER::handleClient:data\n" + str(data))
-            
-            #handle the request
-            #construct the response
 
         except socket.error, (value,message):
             # if no data is available, move on to another client
