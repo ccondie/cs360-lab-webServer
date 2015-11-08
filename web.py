@@ -151,10 +151,11 @@ class Poller:
 
 
     def handleClient(self,fd):
+        Debug.dprint("-\n-\n********   NEW CLIENT   ********\n-\n-\n")
         Debug.dprint("POLLER::handleClient:fd->" + str(fd))
         try:
             data = self.clients[fd].recv(self.size)
-            Debug.dprint("POLLER::handleClient:data->\n" + str(data))
+            Debug.dprint("POLLER::handleClient:data\n" + str(data))
             
             #handle the request
             #construct the response
@@ -176,6 +177,10 @@ class Poller:
             self.poller.unregister(fd)
             self.clients[fd].close()
             del self.clients[fd]
+
+
+
+
 
     def handleRequest(self, data):
         Debug.dprint("POLLER::handleRequest:data->" + str(data))
@@ -205,14 +210,92 @@ class Poller:
         method = p.get_method();
         path = p.get_path();
 
+
+
+
         #check for GET, if not return 501
+        if method != 'GET':
+            return self.code501();
+
+
+
 
 
         #identify host
+        if dataHeaders.has_key('Host'):
+            #if a host key is present
+            Debug.dprint("POLLER::handleRequest:Host->" + dataHeaders['Host'])
+            #check for the host key in the config dictionary
+            if configHost.has_key(dataHeaders['Host']):
+                #if the specified host is in the config dictionary, make the root directory the path assiated with requested host
+                rootDir = configHost[dataHeaders['Host']]
+            else:
+                #if the specified host is not in the config dictionary, set to default??? THIS MAY NEED TO BE AN ERROR
+                rootDir = configHost['default']
+        else:
+            #if a host key is not present
+            rootDir = configHost['default']
+
+
+
+
 
         #identify requested file
+        #for the case of an empty path, point to index
+        if path =="/":
+            #if the path is blank, set the path to index.html
+            path = "/index.html"
 
-        return self.code400()
+        #attempt to retreive the file
+        try:
+            #identify the type of file
+            fileType = ""
+            if path.find('.') != -1:
+                #split at the file extention period and isolate the filetype
+                pathSplit = path.split('.')
+                fileType = str(pathSplit[len(pathSplit) - 1])
+                Debug.dprint("POLLER::handleRequest:fileType->" + str(fileType));
+
+            #assign a MIME type from the condif dictionary
+            if configMedia.has_key(fileType):
+                self.respHeaders['Content-Type'] = configMedia[fileType]
+            else:
+                self.respHeaders['Content-Type'] = "test/plain"
+
+            #check if the file excists, if not throw code 404
+            #create filepath
+            filePath = rootDir + path
+            Debug.dprint("POLLER::handleRequest:filePath->" + str(filePath));
+            if not os.path.isfile(filePath):
+                return self.code404()
+
+            #check for permissions, if not throw code 403
+            if not os.access(filePath, os.R_OK):
+                return self.code403()
+
+            #read file as binary into a body variable
+            fileReader = open(filePath, 'rb')
+            respBody = fileReader.read()
+
+        except IOError:
+            return self.code500()
+
+
+        #if everything worked, package response and return
+        self.respHeaders['Content-Length'] = os.stat(filePath).st_size
+        self.respHeaders['Last-Modified'] = strftime("%a, %d %b %Y %H:%M:%S GMT", gmtime(os.stat(filePath).st_mtime))
+
+        response = "HTTP/1.1 200 OK\r\n"
+
+        for key in self.respHeaders:
+            response += str(key) + ": " + str(self.respHeaders[key]) + "\r\n"
+            Debug.dprint("POLLER::responseHeader: " + str(key) + ": " + str(self.respHeaders[key]))
+
+        response += "\r\n"
+        response += str(respBody)
+        return response
+
+
 
 
 
@@ -225,12 +308,12 @@ class Poller:
         #Return 400 Bad Request response
 
         body = "<h1>400 Bad Request</h1>"
-        self.headers['Content-Length'] = len(body)
-        self.headers['Content-type'] = "text/html"
+        self.respHeaders['Content-Length'] = len(body)
+        self.respHeaders['Content-type'] = "text/html"
         response = "HTTP/1.1 400 Bad Request\r\n"
 
-        for key in self.headers:
-            response += str(key) + ": " + str(self.headers[key]) + "\r\n"
+        for key in self.respHeaders:
+            response += str(key) + ": " + str(self.respHeaders[key]) + "\r\n"
         response += "\r\n" + body
 
         return response
@@ -240,12 +323,12 @@ class Poller:
         #Return 403 Forbidden response
 
         body = "<h1>403 Forbidden</h1>"
-        self.headers['Content-Length'] = len(body)
-        self.headers['Content-Type'] = "text/html"
+        self.respHeaders['Content-Length'] = len(body)
+        self.respHeaders['Content-Type'] = "text/html"
         response = "HTTP/1.1 403 Forbidden\r\n"
 
-        for key in self.headers:
-            response += str(key) + ": " + str(self.headers[key]) + "\r\n"
+        for key in self.respHeaders:
+            response += str(key) + ": " + str(self.respHeaders[key]) + "\r\n"
         response += "\r\n" + body
 
         return response
@@ -255,12 +338,12 @@ class Poller:
         #Retrurn 404 Not Found response
 
         body = "<h1>404 Not Found</h1>"
-        self.headers['Content-Length'] = len(body)
-        self.headers['Content-Type'] = "text/html"
+        self.respHeaders['Content-Length'] = len(body)
+        self.respHeaders['Content-Type'] = "text/html"
         response = "HTTP/1.1 404 Not Found\r\n"
 
-        for key in self.headers:
-            response += str(key) + ": " + str(self.headers[key]) + "\r\n"
+        for key in self.respHeaders:
+            response += str(key) + ": " + str(self.respHeaders[key]) + "\r\n"
         response += "\r\n" + body
 
         return response
@@ -270,12 +353,12 @@ class Poller:
         #Return 500 Internal Server Error response
 
         body = "<h1>500 Internal Server Error</h1>"
-        self.headers['Content-Length'] = len(body)
-        self.headers['Content-Type'] = "text/html"
+        self.respHeaders['Content-Length'] = len(body)
+        self.respHeaders['Content-Type'] = "text/html"
         response = "HTTP/1.1 500 Internal Server Error\r\n"
 
-        for key in self.headers:
-            response += str(key) + ": " + str(self.headers[key]) + "\r\n"
+        for key in self.respHeaders:
+            response += str(key) + ": " + str(self.respHeaders[key]) + "\r\n"
         response += "\r\n" + body
 
         return response
@@ -285,12 +368,12 @@ class Poller:
         #Return 501 Not Implemented response
 
         body = "<h1>501 Not Implemented</h1>"
-        self.headers['Content-Length'] = len(body)
-        self.headers['Content-Type'] = "text/html"
+        self.respHeaders['Content-Length'] = len(body)
+        self.respHeaders['Content-Type'] = "text/html"
         response = "HTTP/1.1 501 Not Implemented\r\n"
 
-        for key in self.headers:
-            response += str(key) + ": " + str(self.headers[key]) + "\r\n"
+        for key in self.respHeaders:
+            response += str(key) + ": " + str(self.respHeaders[key]) + "\r\n"
         response += "\r\n" + body
 
         return response
