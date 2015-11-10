@@ -4,6 +4,7 @@ import socket
 import sys
 import traceback
 import argparse
+import time
 import os
 from time import gmtime, strftime
 from datetime import datetime
@@ -157,6 +158,7 @@ class Poller:
             client.setblocking(0)
             self.clients[client.fileno()] = client
             self.timestamps[client.fileno()] = 0
+            self.caches[client.fileno()] = ""
             self.poller.register(client.fileno(),self.pollmask)
 
 
@@ -172,6 +174,7 @@ class Poller:
         Debug.dprint("POLLER::handleClient:fd->" + str(fd))
         try:
             data = self.clients[fd].recv(self.size)
+            self.caches[fd] = self.caches[fd] + data
             self.timestamps[fd] = datetime.now()
             Debug.dprint("POLLER::handleClient:data\n" + str(data))
 
@@ -182,12 +185,40 @@ class Poller:
             print traceback.format_exc()
             sys.exit()
 
+        #if data:
         if data:
             #if there is data 
-            #create a response
-            response = self.handleRequest(data)
-            #send the response
-            self.clients[fd].send(response)
+            if self.caches[fd].find('\r\n\r\n') != -1:
+                Debug.dprint("POLLER::handleClient:double return found")
+                #check for complete request
+                #create a response
+                response = self.handleRequest(self.caches[fd])
+                
+                sent_len = 0
+                send_len = len(response)
+                Debug.dprint("POLLER::handleClient:response_size->" + str(send_len))
+                try:
+                    while sent_len < send_len:
+                        #Debug.dprint("POLLER::handleClient:sending->" + response[sent_len:])
+                        select.select([],[self.clients[fd]],[])
+                        amount_sent = self.clients[fd].send(response[sent_len:])
+                        sent_len = sent_len + amount_sent
+                        Debug.dprint("POLLER::handleClient:amount_sent->" + str(amount_sent) + "<-TOTAL->" + str(sent_len))
+
+                    #clear the cache
+                    self.caches[fd] = ""
+
+                except socket.error, (value,message):
+                # if too much data is being sent
+                    if value == errno.EAGAIN or errno.EWOULDBLOCK:
+                        Debug.dprint("POLLER::handleClient:send_exception")
+                        return
+                    print traceback.format_exc()
+                    sys.exit()
+                
+            else:
+                Debug.dprint("POLLER::handleClient:INCOMPLETE REQUEST")
+
         else:
             self.poller.unregister(fd)
             self.clients[fd].close()
