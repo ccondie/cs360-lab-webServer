@@ -56,6 +56,7 @@ class Poller:
         self.open_socket()
         self.clients = {}
         self.timestamps = {}
+        self.caches = {}
         self.size = 1024
 
     def open_socket(self):
@@ -197,7 +198,8 @@ class Poller:
 
 
     def handleRequest(self, data):
-        Debug.dprint("POLLER::handleRequest:data->" + str(data))
+        #should only get here if the request is completed to the double line return
+        Debug.dprint("POLLER::handleRequest:data->" + str(data) + "<-data")
         #create and serve the clients request
         self.respHeaders = {}
         self.respHeaders['Server'] = "SimpleHTTP/0.6 Python/2.7.9"
